@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>XD-15IRS Tactical GCS - Live Gyro & Camera HUD</title>
+  <style>
+    :root {
+      --bg-dark: #070a0e;
+      --panel-bg: #0c1219;
+      --hud-green: #00ffa3;
+      --hud-dim: rgba(0, 255, 163, 0.25);
+      --hud-cyan: #00e5ff;
+      --alert-red: #ff3344;
+      --border-color: #172a38;
+      --text-muted: #627d98;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--hud-green);
+      font-family: 'Consolas', 'Courier New', monospace;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+    }
+
+    /* Layout ตามแบบแปลนเดิม */
+    .layout-grid {
+      display: grid;
+      grid-template-columns: 28% 47% 25%;
+      width: 100%;
+      height: 100%;
+    }
+
+    .panel {
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background: var(--panel-bg);
+    }
+
+    .panel-header {
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 10;
+    }
+
+    /* ================= 1. โซนซ้าย: TGP & IR ================= */
+    .tgp-feed-container {
+      height: 48%;
+      background: #000;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .video-mock {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle, #0e1e24 0%, #030608 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    .ai-bounding-box {
+      position: absolute;
+      top: 32%;
+      left: 36%;
+      width: 85px;
+      height: 115px;
+      border: 2px solid var(--alert-red);
+      background: rgba(255, 51, 68, 0.1);
+      box-shadow: 0 0 8px rgba(255, 51, 68, 0.4);
+    }
+
+    .ai-label {
+      position: absolute;
+      top: -18px;
+      left: -2px;
+      background: var(--alert-red);
+      color: #fff;
+      font-size: 9px;
+      font-weight: bold;
+      padding: 1px 4px;
+    }
+
+    .tgp-mode-switch {
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 8px;
+      background: #111a24;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+      font-size: 11px;
+    }
+
+    .mode-btn.active {
+      background: var(--hud-dim);
+      border-color: var(--hud-green);
+      color: var(--hud-green);
+    }
+
+    .tgp-telemetry {
+      padding: 12px;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+      justify-content: space-between;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dashed rgba(23, 42, 56, 0.6);
+      padding-bottom: 3px;
+    }
+
+    /* ================= 2. โซนกลาง: FPV LIVE CAM & HUD ================= */
+    .fpv-viewport {
+      flex: 1;
+      position: relative;
+      background: #000;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* วิดีโอสดจากกล้องมือถือ/เว็บแคม */
+    #fpvVideo {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.65; /* ปรับให้มองเห็นเลเยอร์ HUD ซ้อนได้คมชัด */
+    }
+
+    /* ปุ่มเปิดกล้องและขอสิทธิ์ไจโร */
+    .cam-control-overlay {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 20;
+      display: flex;
+      gap: 6px;
+    }
+
+    .hud-btn {
+      background: rgba(7, 10, 14, 0.85);
+      border: 1px solid var(--hud-green);
+      color: var(--hud-green);
+      font-family: inherit;
+      font-size: 10px;
+      padding: 5px 10px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+
+    .hud-btn:hover {
+      background: var(--hud-green);
+      color: #000;
+    }
+
+    /* กราฟิก HUD Overlay */
+    .hud-overlay {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    .heading-tape {
+      position: absolute;
+      top: 15px;
+      border: 1px solid var(--hud-green);
+      padding: 2px 14px;
+      font-size: 13px;
+      background: rgba(0, 0, 0, 0.7);
+    }
+
+    /* กรอบวงกลมเล็งเป้าตรงกลาง */
+    .boresight {
+      width: 26px;
+      height: 26px;
+      border: 1px solid var(--hud-green);
+      border-radius: 50%;
+      position: absolute;
+    }
+
+    .boresight::after {
+      content: "";
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      background: var(--hud-green);
+      top: 11px;
+      left: 11px;
+    }
+
+    /* ชุดแกนระนาบขอบฟ้าเทียม (ตอบสนองต่อ Pitch และ Roll จากไจโร) */
+    .horizon-ladder-container {
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.05s linear;
+    }
+
+    .horizon-line {
+      width: 180px;
+      height: 2px;
+      background: var(--hud-green);
+      box-shadow: 0 0 6px var(--hud-green);
+      position: relative;
+    }
+
+    .horizon-line::before, .horizon-line::after {
+      content: "";
+      position: absolute;
+      width: 2px;
+      height: 8px;
+      background: var(--hud-green);
+      top: -3px;
+    }
+    .horizon-line::before { left: 0; }
+    .horizon-line::after { right: 0; }
+
+    .pitch-line {
+      width: 80px;
+      height: 1px;
+      background: var(--hud-green);
+      margin: 20px 0;
+      position: relative;
+      opacity: 0.8;
+    }
+
+    /* แถบตัวเลข Roll / Pitch จากไจโรสด */
+    .gyro-telemetry-box {
+      position: absolute;
+      bottom: 45px;
+      background: rgba(0, 0, 0, 0.75);
+      border: 1px solid var(--hud-green);
+      padding: 4px 12px;
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    /* มาตรวัดด้านข้าง (Speed & Altitude) */
+    .hud-tape {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.75);
+      border: 1px solid var(--hud-green);
+      padding: 6px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .hud-tape-left { left: 20px; }
+    .hud-tape-right { right: 20px; }
+    .tape-title { font-size: 9px; color: var(--text-muted); }
+    .tape-val { font-size: 18px; font-weight: bold; margin-top: 2px; }
+
+    .hud-bottom-bar {
+      position: absolute;
+      bottom: 12px;
+      display: flex;
+      gap: 16px;
+      font-size: 10px;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 4px 14px;
+      border: 1px solid var(--border-color);
+    }
+
+    /* ================= 3. โซนขวา: เครื่องบิน & สถานะ ================= */
+    .status-panel-content {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      height: calc(100% - 35px);
+      justify-content: space-between;
+    }
+
+    .f15-wireframe {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 5px 0;
+    }
+
+    .f15-svg {
+      width: 100px;
+      height: 130px;
+      filter: drop-shadow(0 0 4px var(--hud-green));
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: bold;
+      color: var(--hud-cyan);
+      margin-bottom: 6px;
+      border-left: 3px solid var(--hud-cyan);
+      padding-left: 6px;
+    }
+
+    .engine-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .engine-box {
+      background: #091017;
+      border: 1px solid var(--border-color);
+      padding: 6px;
+      text-align: center;
+    }
+
+    .engine-name { font-size: 10px; color: var(--text-muted); }
+    .engine-rpm { font-size: 14px; font-weight: bold; color: var(--hud-green); margin: 2px 0; }
+    .engine-tem { font-size: 10px; color: #ffaa00; }
+
+    .telemetry-summary {
+      background: #091017;
+      border: 1px solid var(--border-color);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="layout-grid">
+
+    <!-- 1. โซนซ้าย: TGP & IR -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>TGP / SENSOR POD</span>
+        <span style="color: var(--hud-green)">[4G ONLINE]</span>
+      </div>
+
+      <div class="tgp-feed-container">
+        <div class="video-mock" id="tgpFeed">[ 4G STREAM : REALME 7i ]</div>
+        <div class="ai-bounding-box">
+          <div class="ai-label">HUMAN 94%</div>
+        </div>
+      </div>
+
+      <div class="tgp-mode-switch">
+        <button class="mode-btn active" id="btnColor" onclick="switchMode('COLOR')">COLOR</button>
+        <button class="mode-btn" id="btnIR" onclick="switchMode('IR')">IR</button>
+      </div>
+
+      <div class="tgp-telemetry">
+        <div>
+          <div class="data-row">
+            <span style="color: var(--text-muted)">TARGET ID</span>
+            <span>#CSAR-01</span>
+          </div>
+          <div class="data-row">
+            <span style="color: var(--text-muted)">COORDINATES</span>
+            <span>15.1124° N, 104.3298° E</span>
+          </div>
+          <div class="data-row">
+            <span style="color: var(--text-muted)">HOTSPOT MAX</span>
+            <span style="color: #ffaa00">37.4 °C</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 4px;">
+          <button class="hud-btn" style="flex: 1;">LOCK</button>
+          <button class="hud-btn" style="flex: 1;">TRACK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. โซนกลาง: FPV CAM (พร้อมระบบเปิดกล้องมือถือ + รับค่าไจโร) -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>FPV LIVE VIEW [PRIMARY HUD]</span>
+        <span id="camStatus" style="color: var(--alert-red)">OFFLINE</span>
+      </div>
+
+      <div class="fpv-viewport">
+        <!-- วิดีโอสดจากกล้อง -->
+        <video id="fpvVideo" autoplay playsinline muted></video>
+
+        <!-- ปุ่มควบคุมกล้องและขอสิทธิ์ตรวจไจโร -->
+        <div class="cam-control-overlay">
+          <button class="hud-btn" onclick="startCamera()">📷 เปิดกล้อง FPV</button>
+          <button class="hud-btn" onclick="requestGyroPermission()">🧭 ซิงค์ไจโร (GYRO)</button>
+        </div>
+
+        <!-- HUD Layer -->
+        <div class="hud-overlay">
+          <div class="heading-tape" id="headingText">045°</div>
+
+          <div class="boresight"></div>
+
+          <!-- ระนาบขอบฟ้าเทียมที่หมุนเอียงและเลื่อนขึ้น-ลงตามไจโร -->
+          <div class="horizon-ladder-container" id="horizonLadder">
+            <div class="pitch-line" style="width: 50px;"></div>
+            <div class="horizon-line"></div>
+            <div class="pitch-line" style="width: 50px;"></div>
+          </div>
+
+          <!-- ตัวเลขแสดง Roll / Pitch สด -->
+          <div class="gyro-telemetry-box">
+            <span>ROLL: <span id="gyroRoll" style="color: var(--hud-cyan)">0.0°</span></span>
+            <span>PITCH: <span id="gyroPitch" style="color: var(--hud-cyan)">0.0°</span></span>
+          </div>
+
+          <div class="hud-tape hud-tape-left">
+            <span class="tape-title">SPD (km/h)</span>
+            <span class="tape-val">78</span>
+          </div>
+
+          <div class="hud-tape hud-tape-right">
+            <span class="tape-title">ALT (m AGL)</span>
+            <span class="tape-val">85</span>
+          </div>
+
+          <div class="hud-bottom-bar">
+            <span id="gyroSensorState">GYRO: WAITING...</span>
+            <span>MODE: STABILIZE</span>
+            <span style="color: var(--hud-cyan)">LINK: 98%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. โซนขวา: แผงสถานะตัวเครื่อง -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>XD-15IRS AIRFRAME</span>
+        <span style="color: var(--hud-green)">15.2V (4S)</span>
+      </div>
+
+      <div class="status-panel-content">
+        <div class="f15-wireframe">
+          <svg class="f15-svg" viewBox="0 0 100 130" fill="none" stroke="#00ffa3" stroke-width="1.5">
+            <path d="M 50 5 L 53 25 L 54 45 L 46 45 L 47 25 Z" />
+            <path d="M 46 45 L 10 90 L 25 90 L 46 80 Z" />
+            <path d="M 54 45 L 90 90 L 75 90 L 54 80 Z" />
+            <rect x="42" y="70" width="16" height="40" />
+            <path d="M 42 105 L 18 122 L 32 122 L 42 115 Z" />
+            <path d="M 58 105 L 82 122 L 68 122 L 58 115 Z" />
+            <line x1="38" y1="85" x2="38" y2="120" stroke-width="2"/>
+            <line x1="62" y1="85" x2="62" y2="120" stroke-width="2"/>
+          </svg>
+          <span style="font-size: 10px; margin-top: 4px;">SYS STATUS: OK</span>
+        </div>
+
+        <div>
+          <div class="section-title">POWERTRAIN DATA</div>
+          <div class="engine-grid">
+            <div class="engine-box">
+              <div class="engine-name">EDF 1 (L)</div>
+              <div class="engine-rpm">18,420</div>
+              <div class="engine-tem">45.2 °C</div>
+            </div>
+            <div class="engine-box">
+              <div class="engine-name">EDF 2 (R)</div>
+              <div class="engine-rpm">18,390</div>
+              <div class="engine-tem">46.8 °C</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">FLIGHT DYNAMICS</div>
+          <div class="telemetry-summary">
+            <div class="data-row">
+              <span style="color: var(--text-muted)">SPD (GPS)</span>
+              <span style="font-weight: bold;">78 km/h</span>
+            </div>
+            <div class="data-row">
+              <span style="color: var(--text-muted)">ALT (BARO)</span>
+              <span style="font-weight: bold;">85 m</span>
+            </div>
+            <div class="data-row">
+              <span style="color: var(--text-muted)">BATTERY</span>
+              <span style="color: var(--hud-green)">92% (15.2V)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // 1. ฟังก์ชันเปิดกล้องอุปกรณ์ (มือถือ/แท็บเล็ต/เว็บแคม)
+    async function startCamera() {
+      const video = document.getElementById('fpvVideo');
+      const camStatus = document.getElementById('camStatus');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" }, // บังคับใช้กล้องหลังถ้าเปิดบนมือถือ
+          audio: false
+        });
+        video.srcObject = stream;
+        camStatus.innerText = "LIVE UVC/CAM";
+        camStatus.style.color = "var(--hud-green)";
+      } catch (err) {
+        console.error("Camera access error:", err);
+        alert("ไม่สามารถเข้าถึงกล้องได้: โปรดตรวจสอบการอนุญาตใช้งานกล้องบนบราวเซอร์");
+      }
+    }
+
+    // 2. ฟังก์ชันขอสิทธิ์และรับค่าจากไจโรสโคปมือถือ (DeviceOrientation)
+    function requestGyroPermission() {
+      // สำหรับ iOS / อุปกรณ์ที่ต้องร้องขอ Permission ล่วงหน้า
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(permissionState => {
+            if (permissionState === 'granted') {
+              bindGyroEvents();
+            } else {
+              alert('การเข้าถึง Gyroscope ถูกปฏิเสธ');
+            }
+          })
+          .catch(console.error);
+      } else {
+        // สำหรับ Android / บราวเซอร์ทั่วไป
+        bindGyroEvents();
+      }
+    }
+
+    function bindGyroEvents() {
+      window.addEventListener('deviceorientation', handleOrientation, true);
+      document.getElementById('gyroSensorState').innerText = "GYRO: 6D CONNECTED";
+      document.getElementById('gyroSensorState').style.color = "var(--hud-green)";
+    }
+
+    // ฟังก์ชันคำนวณและวาดระนาบ HUD ตามแกน Pitch & Roll
+    function handleOrientation(event) {
+      // beta = การก้ม/เงย (Pitch: -180 ถึง 180)
+      // gamma = การเอียงซ้าย/ขวา (Roll: -90 ถึง 90)
+      let pitch = event.beta ? Math.round(event.beta) : 0;
+      let roll = event.gamma ? Math.round(event.gamma) : 0;
+
+      // แสดงค่าตัวเลขบน HUD
+      document.getElementById('gyroPitch').innerText = (pitch > 0 ? "+" : "") + pitch + "°";
+      document.getElementById('gyroRoll').innerText = (roll > 0 ? "+" : "") + roll + "°";
+
+      // ควบคุมการขยับเส้นขอบฟ้าเทียม (Horizon Ladder)
+      // เอียงตาม Roll และ เลื่อนขึ้น-ลงตาม Pitch
+      const horizon = document.getElementById('horizonLadder');
+      const pitchOffset = Math.max(-50, Math.min(50, pitch * 1.5)); // จำกัดระยะเลื่อนไม่ให้หลุดกรอบ
+      horizon.style.transform = `rotate(${-roll}deg) translateY(${pitchOffset}px)`;
+    }
+
+    // ฟังก์ชันสลับโหมด COLOR / IR
+    function switchMode(mode) {
+      const btnColor = document.getElementById('btnColor');
+      const btnIR = document.getElementById('btnIR');
+      const tgpFeed = document.getElementById('tgpFeed');
+
+      if (mode === 'COLOR') {
+        btnColor.classList.add('active');
+        btnIR.classList.remove('active');
+        tgpFeed.innerText = "[ 4G LIVE STREAM : RGB COLOR VIEW ]";
+        tgpFeed.style.background = "radial-gradient(circle, #0e1e24 0%, #030608 100%)";
+      } else {
+        btnIR.classList.add('active');
+        btnColor.classList.remove('active');
+        tgpFeed.innerText = "[ 4G LIVE STREAM : FLIR THERMAL VIEW ]";
+        tgpFeed.style.background = "radial-gradient(circle, #2d1033 0%, #08030b 100%)";
+      }
+    }
+  </script>
+</body>
+</html>
